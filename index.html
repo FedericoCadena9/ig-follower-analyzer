@@ -145,6 +145,16 @@ const normalizeData = (data, type) => {
     }
 
     const { href, value, timestamp } = stringData;
+    // Use value, or fallback to item.title, or extract from href
+    const username = value || item.title || (href ? href.split('/').filter(Boolean).pop() : 'unknown');
+
+    if (!username) {
+      warnings.push({
+        type: 'warning',
+        message: `No se pudo determinar el username para un usuario`
+      });
+      continue;
+    }
 
     if (timestamp > mostRecentTimestamp) {
       mostRecentTimestamp = timestamp;
@@ -154,10 +164,10 @@ const normalizeData = (data, type) => {
       const existing = seenHrefs.get(href);
       warnings.push({
         type: 'warning',
-        message: `Duplicado: "${value}" aparece más de una vez`
+        message: `Duplicado: "${username}" aparece más de una vez`
       });
       if (timestamp > existing.timestamp) {
-        seenHrefs.set(href, { username: value, href, timestamp });
+        seenHrefs.set(href, { username, href, timestamp });
       }
       continue;
     }
@@ -165,11 +175,11 @@ const normalizeData = (data, type) => {
     if (!href?.includes('instagram.com/')) {
       warnings.push({
         type: 'warning',
-        message: `URL inválida para "${value}": ${href}`
+        message: `URL inválida para "${username}": ${href}`
       });
     }
 
-    seenHrefs.set(href, { username: value, href, timestamp });
+    seenHrefs.set(href, { username, href, timestamp });
   }
 
   if (mostRecentTimestamp > 0 && mostRecentTimestamp < sixMonthsAgo) {
@@ -193,6 +203,11 @@ const compareUsers = (followersMap, followingMap, whitelistSet) => {
   const warnings = [];
 
   for (const [href, user] of followingMap) {
+    // Safety check for undefined username
+    if (!user || !user.username) {
+      continue;
+    }
+
     if (whitelistSet.has(user.username.toLowerCase())) {
       continue;
     }

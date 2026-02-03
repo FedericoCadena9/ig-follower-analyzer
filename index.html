@@ -10,20 +10,198 @@
 <body class="bg-gray-50 min-h-screen">
   <div id="app"></div>
 
-  <script>
-    const { createApp, ref, computed } = Vue;
+<script>
+const { createApp, ref, computed, reactive } = Vue;
 
-    createApp({
-      setup() {
-        const message = ref('Instagram Follower Analyzer');
-        return { message };
-      },
-      template: `
-        <div class="max-w-4xl mx-auto px-4 py-8">
-          <h1 class="text-2xl font-bold text-gray-800">{{ message }}</h1>
-        </div>
-      `
-    }).mount('#app');
-  </script>
+// DropZone Component
+const DropZone = {
+  props: {
+    label: String,
+    accept: { type: String, default: '.json' },
+    loaded: Boolean,
+    count: { type: Number, default: null },
+    error: { type: String, default: null }
+  },
+  emits: ['file-loaded'],
+  setup(props, { emit }) {
+    const isDragging = ref(false);
+    const fileInput = ref(null);
+
+    const handleDrop = (e) => {
+      isDragging.value = false;
+      const file = e.dataTransfer.files[0];
+      if (file) processFile(file);
+    };
+
+    const handleClick = () => {
+      fileInput.value?.click();
+    };
+
+    const handleFileSelect = (e) => {
+      const file = e.target.files[0];
+      if (file) processFile(file);
+    };
+
+    const processFile = (file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          emit('file-loaded', { data, filename: file.name });
+        } catch (err) {
+          emit('file-loaded', { error: 'JSON inválido: ' + err.message });
+        }
+      };
+      reader.readAsText(file);
+    };
+
+    return { isDragging, fileInput, handleDrop, handleClick, handleFileSelect };
+  },
+  template: `
+    <div
+      @click="handleClick"
+      @dragover.prevent="isDragging = true"
+      @dragleave.prevent="isDragging = false"
+      @drop.prevent="handleDrop"
+      class="relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all min-h-[120px] flex flex-col items-center justify-center"
+      :class="{
+        'border-blue-400 bg-blue-50': isDragging,
+        'border-green-400 bg-green-50': loaded && !error,
+        'border-red-400 bg-red-50': error,
+        'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50': !isDragging && !loaded && !error
+      }"
+    >
+      <input
+        ref="fileInput"
+        type="file"
+        :accept="accept"
+        @change="handleFileSelect"
+        class="hidden"
+      />
+
+      <div v-if="error" class="text-red-600">
+        <span class="text-2xl">❌</span>
+        <p class="mt-2 font-medium">Error</p>
+        <p class="text-sm">{{ error }}</p>
+      </div>
+
+      <div v-else-if="loaded" class="text-green-600">
+        <span class="text-2xl">✅</span>
+        <p class="mt-2 font-medium">{{ label }}</p>
+        <p class="text-sm text-green-700" v-if="count !== null">{{ count.toLocaleString() }} registros</p>
+      </div>
+
+      <div v-else class="text-gray-500">
+        <span class="text-2xl">📁</span>
+        <p class="mt-2 font-medium">{{ label }}</p>
+        <p class="text-sm">Arrastra o haz clic</p>
+      </div>
+    </div>
+  `
+};
+
+createApp({
+  components: { DropZone },
+  setup() {
+    const followers = ref(null);
+    const following = ref(null);
+    const whitelist = ref(null);
+    const errors = reactive({
+      followers: null,
+      following: null,
+      whitelist: null
+    });
+
+    const handleFollowersLoaded = ({ data, error, filename }) => {
+      if (error) {
+        errors.followers = error;
+        followers.value = null;
+      } else {
+        errors.followers = null;
+        followers.value = data;
+      }
+    };
+
+    const handleFollowingLoaded = ({ data, error, filename }) => {
+      if (error) {
+        errors.following = error;
+        following.value = null;
+      } else {
+        errors.following = null;
+        following.value = data;
+      }
+    };
+
+    const handleWhitelistLoaded = ({ data, error, filename }) => {
+      if (error) {
+        errors.whitelist = error;
+        whitelist.value = null;
+      } else {
+        errors.whitelist = null;
+        whitelist.value = data;
+      }
+    };
+
+    const followersCount = computed(() => {
+      if (!followers.value) return null;
+      return Array.isArray(followers.value) ? followers.value.length : 0;
+    });
+
+    const followingCount = computed(() => {
+      if (!following.value) return null;
+      const data = following.value.relationships_following || following.value;
+      return Array.isArray(data) ? data.length : 0;
+    });
+
+    return {
+      followers,
+      following,
+      whitelist,
+      errors,
+      followersCount,
+      followingCount,
+      handleFollowersLoaded,
+      handleFollowingLoaded,
+      handleWhitelistLoaded
+    };
+  },
+  template: `
+    <div class="max-w-4xl mx-auto px-4 py-8">
+      <header class="text-center mb-8">
+        <h1 class="text-2xl md:text-3xl font-bold text-gray-800">📊 Instagram Follower Analyzer</h1>
+        <p class="text-gray-600 mt-2">Descubre quién no te sigue de vuelta</p>
+      </header>
+
+      <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <DropZone
+          label="Followers"
+          :loaded="!!followers"
+          :count="followersCount"
+          :error="errors.followers"
+          @file-loaded="handleFollowersLoaded"
+        />
+        <DropZone
+          label="Following"
+          :loaded="!!following"
+          :count="followingCount"
+          :error="errors.following"
+          @file-loaded="handleFollowingLoaded"
+        />
+        <DropZone
+          label="Whitelist (opcional)"
+          :loaded="!!whitelist"
+          :count="Array.isArray(whitelist) ? whitelist.length : whitelist?.usernames?.length"
+          :error="errors.whitelist"
+          @file-loaded="handleWhitelistLoaded"
+        />
+      </section>
+
+      <div v-if="followers && following" class="text-center text-gray-600">
+        <p>✅ Archivos cargados. Procesando...</p>
+      </div>
+    </div>
+  `
+}).mount('#app');
+</script>
 </body>
 </html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Instagram Follower Analyzer</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="app"></div>
+
+  <script>
+    const { createApp, ref, computed } = Vue;
+
+    createApp({
+      setup() {
+        const message = ref('Instagram Follower Analyzer');
+        return { message };
+      },
+      template: `
+        <div class="max-w-4xl mx-auto px-4 py-8">
+          <h1 class="text-2xl font-bold text-gray-800">{{ message }}</h1>
+        </div>
+      `
+    }).mount('#app');
+  </script>
+</body>
+</html>

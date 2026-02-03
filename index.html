@@ -302,8 +302,177 @@ const WarningsPanel = {
   `
 };
 
+// ResultsSection Component
+const ResultsSection = {
+  props: {
+    results: { type: Array, default: () => [] },
+    whitelistSet: { type: Set, default: () => new Set() }
+  },
+  emits: ['add-to-whitelist'],
+  setup(props, { emit }) {
+    const searchQuery = ref('');
+    const sortOrder = ref('newest');
+
+    const filteredResults = computed(() => {
+      let filtered = [...props.results];
+
+      if (searchQuery.value.trim()) {
+        const query = searchQuery.value.toLowerCase();
+        filtered = filtered.filter(u => u.username.toLowerCase().includes(query));
+      }
+
+      if (sortOrder.value === 'newest') {
+        filtered.sort((a, b) => b.timestamp - a.timestamp);
+      } else if (sortOrder.value === 'oldest') {
+        filtered.sort((a, b) => a.timestamp - b.timestamp);
+      } else if (sortOrder.value === 'alpha') {
+        filtered.sort((a, b) => a.username.localeCompare(b.username));
+      }
+
+      return filtered;
+    });
+
+    const formatDate = (timestamp) => {
+      return new Date(timestamp * 1000).toLocaleDateString('es', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      });
+    };
+
+    const openProfile = (href) => {
+      window.open(href, '_blank');
+    };
+
+    const addToWhitelist = (user) => {
+      emit('add-to-whitelist', user.username);
+    };
+
+    return {
+      searchQuery,
+      sortOrder,
+      filteredResults,
+      formatDate,
+      openProfile,
+      addToWhitelist
+    };
+  },
+  template: `
+    <section v-if="results.length > 0">
+      <!-- Search and Sort Bar -->
+      <div class="flex flex-col sm:flex-row gap-3 mb-4">
+        <div class="flex-1 relative">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Buscar username..."
+            class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+        </div>
+        <select
+          v-model="sortOrder"
+          class="px-4 py-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+        >
+          <option value="newest">Más recientes</option>
+          <option value="oldest">Más antiguos</option>
+          <option value="alpha">A-Z</option>
+        </select>
+      </div>
+
+      <!-- Results Count -->
+      <p class="text-gray-600 mb-4">
+        📋 <strong>{{ filteredResults.length }}</strong> de {{ results.length }} no te siguen
+      </p>
+
+      <!-- Mobile Cards (visible on small screens) -->
+      <div class="md:hidden space-y-3">
+        <div
+          v-for="user in filteredResults"
+          :key="user.href"
+          class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
+        >
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-semibold text-gray-800">@{{ user.username }}</span>
+          </div>
+          <p class="text-sm text-gray-500 mb-3">Seguido: {{ formatDate(user.timestamp) }}</p>
+          <div class="flex gap-2">
+            <button
+              @click="openProfile(user.href)"
+              class="flex-1 min-h-[44px] px-4 py-2 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 active:bg-blue-700 transition-colors"
+            >
+              Ir a perfil
+            </button>
+            <button
+              @click="addToWhitelist(user)"
+              class="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
+              title="Añadir a whitelist"
+            >
+              + WL
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Desktop Table (visible on medium+ screens) -->
+      <div class="hidden md:block bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+        <table class="w-full">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Username</th>
+              <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Fecha seguido</th>
+              <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Acciones</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr
+              v-for="user in filteredResults"
+              :key="user.href"
+              class="hover:bg-gray-50 transition-colors"
+            >
+              <td class="px-6 py-4">
+                <span class="font-medium text-gray-800">@{{ user.username }}</span>
+              </td>
+              <td class="px-6 py-4 text-gray-600">{{ formatDate(user.timestamp) }}</td>
+              <td class="px-6 py-4 text-right">
+                <div class="flex justify-end gap-2">
+                  <button
+                    @click="openProfile(user.href)"
+                    class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors"
+                  >
+                    Ir a perfil
+                  </button>
+                  <button
+                    @click="addToWhitelist(user)"
+                    class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    + Whitelist
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Empty state when filtered -->
+      <div v-if="filteredResults.length === 0 && results.length > 0" class="text-center py-8 text-gray-500">
+        <p class="text-4xl mb-2">🔍</p>
+        <p>No se encontraron resultados para "{{ searchQuery }}"</p>
+      </div>
+    </section>
+
+    <!-- Empty state when no results at all -->
+    <div v-else-if="results.length === 0" class="text-center py-12 text-gray-500">
+      <p class="text-4xl mb-2">✨</p>
+      <p class="text-lg font-medium">¡Todos te siguen de vuelta!</p>
+      <p class="text-sm mt-1">O aún no has cargado los archivos</p>
+    </div>
+  `
+};
+
 createApp({
-  components: { DropZone, WarningsPanel },
+  components: { DropZone, WarningsPanel, ResultsSection },
   setup() {
     const followers = ref(null);
     const following = ref(null);
@@ -422,6 +591,12 @@ createApp({
       return Array.isArray(data) ? data.length : 0;
     });
 
+    const addToWhitelist = (username) => {
+      whitelistSet.value.add(username.toLowerCase());
+      saveWhitelist();
+      processData();
+    };
+
     return {
       followers,
       following,
@@ -436,7 +611,8 @@ createApp({
       results,
       whitelistSet,
       processData,
-      saveWhitelist
+      saveWhitelist,
+      addToWhitelist
     };
   },
   template: `
@@ -472,10 +648,11 @@ createApp({
 
       <WarningsPanel :warnings="allWarnings" />
 
-      <div v-if="followers && following" class="text-center text-gray-600">
-        <p v-if="results.length > 0">{{ results.length }} cuentas no te siguen de vuelta</p>
-        <p v-else>Todos te siguen de vuelta!</p>
-      </div>
+      <ResultsSection
+        :results="results"
+        :whitelist-set="whitelistSet"
+        @add-to-whitelist="addToWhitelist"
+      />
     </div>
   `
 }).mount('#app');

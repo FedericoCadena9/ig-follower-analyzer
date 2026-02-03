@@ -225,8 +225,85 @@ const parseWhitelist = (data) => {
   return new Set();
 };
 
+// WarningsPanel Component
+const WarningsPanel = {
+  props: {
+    warnings: { type: Array, default: () => [] }
+  },
+  setup(props) {
+    const isExpanded = ref(true);
+
+    const groupedWarnings = computed(() => {
+      const groups = { error: [], warning: [], info: [] };
+      for (const w of props.warnings) {
+        groups[w.type]?.push(w);
+      }
+      return groups;
+    });
+
+    const hasWarnings = computed(() => props.warnings.length > 0);
+
+    return { isExpanded, groupedWarnings, hasWarnings };
+  },
+  template: `
+    <div v-if="hasWarnings" class="mb-6">
+      <button
+        @click="isExpanded = !isExpanded"
+        class="w-full flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+      >
+        <span class="flex items-center gap-2 font-medium text-amber-800">
+          <span>⚠️</span>
+          <span>{{ warnings.length }} problema{{ warnings.length !== 1 ? 's' : '' }} encontrado{{ warnings.length !== 1 ? 's' : '' }}</span>
+        </span>
+        <span class="text-amber-600">{{ isExpanded ? '▼' : '▶' }}</span>
+      </button>
+
+      <div v-show="isExpanded" class="mt-3 space-y-3">
+        <!-- Errors -->
+        <div
+          v-for="(warning, idx) in groupedWarnings.error"
+          :key="'error-' + idx"
+          class="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg"
+        >
+          <div class="flex items-start gap-2">
+            <span class="text-red-500 font-bold">🔴 ERROR</span>
+          </div>
+          <p class="mt-1 text-red-800">{{ warning.message }}</p>
+        </div>
+
+        <!-- Warnings -->
+        <div
+          v-for="(warning, idx) in groupedWarnings.warning"
+          :key="'warning-' + idx"
+          class="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg"
+        >
+          <div class="flex items-start gap-2">
+            <span class="text-amber-600 font-bold">🟡 WARNING</span>
+          </div>
+          <p class="mt-1 text-amber-800">{{ warning.message }}</p>
+        </div>
+
+        <!-- Info -->
+        <div
+          v-for="(warning, idx) in groupedWarnings.info"
+          :key="'info-' + idx"
+          class="p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg"
+        >
+          <div class="flex items-start gap-2">
+            <span class="text-blue-600 font-bold">🟠 INFO</span>
+          </div>
+          <p class="mt-1 text-blue-700">{{ warning.message }}</p>
+          <p class="mt-2 text-sm text-blue-600">
+            💡 Instagram → Configuración → Tu actividad → Descargar información
+          </p>
+        </div>
+      </div>
+    </div>
+  `
+};
+
 createApp({
-  components: { DropZone },
+  components: { DropZone, WarningsPanel },
   setup() {
     const followers = ref(null);
     const following = ref(null);
@@ -392,6 +469,8 @@ createApp({
           @file-loaded="handleWhitelistLoaded"
         />
       </section>
+
+      <WarningsPanel :warnings="allWarnings" />
 
       <div v-if="followers && following" class="text-center text-gray-600">
         <p v-if="results.length > 0">{{ results.length }} cuentas no te siguen de vuelta</p>

@@ -100,6 +100,131 @@ const DropZone = {
   `
 };
 
+// Normalizer utility
+const normalizeData = (data, type) => {
+  const warnings = [];
+  const normalized = new Map();
+
+  // Detect format and extract array
+  let items;
+  if (Array.isArray(data)) {
+    items = data;
+  } else if (data.relationships_following) {
+    items = data.relationships_following;
+  } else if (data.relationships_followers) {
+    items = data.relationships_followers;
+  } else {
+    const arrayProp = Object.keys(data).find(k => Array.isArray(data[k]));
+    if (arrayProp) {
+      items = data[arrayProp];
+      warnings.push({
+        type: 'info',
+        message: `Formato detectado: usando propiedad "${arrayProp}"`
+      });
+    } else {
+      return { normalized, warnings: [{ type: 'error', message: 'No se encontró array de usuarios en el archivo' }] };
+    }
+  }
+
+  if (!items || items.length === 0) {
+    return { normalized, warnings: [{ type: 'error', message: 'El archivo no contiene usuarios' }] };
+  }
+
+  const sixMonthsAgo = Math.floor(Date.now() / 1000) - 15768000;
+  let mostRecentTimestamp = 0;
+  const seenHrefs = new Map();
+
+  for (const item of items) {
+    const stringData = item.string_list_data?.[0];
+    if (!stringData) {
+      warnings.push({
+        type: 'warning',
+        message: `Usuario "${item.title || 'desconocido'}" no tiene datos válidos`
+      });
+      continue;
+    }
+
+    const { href, value, timestamp } = stringData;
+
+    if (timestamp > mostRecentTimestamp) {
+      mostRecentTimestamp = timestamp;
+    }
+
+    if (seenHrefs.has(href)) {
+      const existing = seenHrefs.get(href);
+      warnings.push({
+        type: 'warning',
+        message: `Duplicado: "${value}" aparece más de una vez`
+      });
+      if (timestamp > existing.timestamp) {
+        seenHrefs.set(href, { username: value, href, timestamp });
+      }
+      continue;
+    }
+
+    if (!href?.includes('instagram.com/')) {
+      warnings.push({
+        type: 'warning',
+        message: `URL inválida para "${value}": ${href}`
+      });
+    }
+
+    seenHrefs.set(href, { username: value, href, timestamp });
+  }
+
+  if (mostRecentTimestamp > 0 && mostRecentTimestamp < sixMonthsAgo) {
+    const date = new Date(mostRecentTimestamp * 1000).toLocaleDateString('es');
+    warnings.push({
+      type: 'info',
+      message: `Datos desactualizados: último registro del ${date}. Considera descargar datos frescos.`
+    });
+  }
+
+  for (const [href, user] of seenHrefs) {
+    normalized.set(href, user);
+  }
+
+  return { normalized, warnings };
+};
+
+// Compare followers and following
+const compareUsers = (followersMap, followingMap, whitelistSet) => {
+  const notFollowingBack = [];
+  const warnings = [];
+
+  for (const [href, user] of followingMap) {
+    if (whitelistSet.has(user.username.toLowerCase())) {
+      continue;
+    }
+
+    if (!followersMap.has(href)) {
+      notFollowingBack.push(user);
+    } else {
+      const follower = followersMap.get(href);
+      if (follower.username !== user.username) {
+        warnings.push({
+          type: 'warning',
+          message: `Username cambiado: "${follower.username}" → "${user.username}" (mismo perfil)`
+        });
+      }
+    }
+  }
+
+  notFollowingBack.sort((a, b) => b.timestamp - a.timestamp);
+  return { notFollowingBack, warnings };
+};
+
+// Parse whitelist (supports array or object format)
+const parseWhitelist = (data) => {
+  if (Array.isArray(data)) {
+    return new Set(data.map(u => u.toLowerCase()));
+  }
+  if (data?.usernames && Array.isArray(data.usernames)) {
+    return new Set(data.usernames.map(u => u.toLowerCase()));
+  }
+  return new Set();
+};
+
 createApp({
   components: { DropZone },
   setup() {
@@ -112,33 +237,100 @@ createApp({
       whitelist: null
     });
 
-    const handleFollowersLoaded = ({ data, error, filename }) => {
+    const followersNormalized = ref(null);
+    const followingNormalized = ref(null);
+    const whitelistSet = ref(new Set());
+    const allWarnings = ref([]);
+    const results = ref([]);
+
+    const storedWhitelist = localStorage.getItem('ig-analyzer-whitelist');
+    if (storedWhitelist) {
+      try {
+        const parsed = JSON.parse(storedWhitelist);
+        whitelistSet.value = new Set(parsed.usernames?.map(u => u.toLowerCase()) || []);
+      } catch (e) {
+        console.warn('Could not parse stored whitelist');
+      }
+    }
+
+    const saveWhitelist = () => {
+      const data = {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        usernames: Array.from(whitelistSet.value)
+      };
+      localStorage.setItem('ig-analyzer-whitelist', JSON.stringify(data));
+    };
+
+    const processData = () => {
+      if (!followers.value || !following.value) return;
+
+      const warnings = [];
+
+      const { normalized: normFollowers, warnings: warnFollowers } = normalizeData(followers.value, 'followers');
+      followersNormalized.value = normFollowers;
+      warnings.push(...warnFollowers);
+
+      const { normalized: normFollowing, warnings: warnFollowing } = normalizeData(following.value, 'following');
+      followingNormalized.value = normFollowing;
+      warnings.push(...warnFollowing);
+
+      const hasBlockingError = warnings.some(w => w.type === 'error');
+      if (hasBlockingError) {
+        allWarnings.value = warnings;
+        results.value = [];
+        return;
+      }
+
+      if (whitelist.value) {
+        const imported = parseWhitelist(whitelist.value);
+        for (const username of imported) {
+          whitelistSet.value.add(username);
+        }
+        saveWhitelist();
+      }
+
+      const { notFollowingBack, warnings: compareWarnings } = compareUsers(
+        normFollowers,
+        normFollowing,
+        whitelistSet.value
+      );
+
+      warnings.push(...compareWarnings);
+      allWarnings.value = warnings;
+      results.value = notFollowingBack;
+    };
+
+    const handleFollowersLoaded = ({ data, error }) => {
       if (error) {
         errors.followers = error;
         followers.value = null;
       } else {
         errors.followers = null;
         followers.value = data;
+        processData();
       }
     };
 
-    const handleFollowingLoaded = ({ data, error, filename }) => {
+    const handleFollowingLoaded = ({ data, error }) => {
       if (error) {
         errors.following = error;
         following.value = null;
       } else {
         errors.following = null;
         following.value = data;
+        processData();
       }
     };
 
-    const handleWhitelistLoaded = ({ data, error, filename }) => {
+    const handleWhitelistLoaded = ({ data, error }) => {
       if (error) {
         errors.whitelist = error;
         whitelist.value = null;
       } else {
         errors.whitelist = null;
         whitelist.value = data;
+        processData();
       }
     };
 
@@ -162,7 +354,12 @@ createApp({
       followingCount,
       handleFollowersLoaded,
       handleFollowingLoaded,
-      handleWhitelistLoaded
+      handleWhitelistLoaded,
+      allWarnings,
+      results,
+      whitelistSet,
+      processData,
+      saveWhitelist
     };
   },
   template: `
@@ -197,7 +394,8 @@ createApp({
       </section>
 
       <div v-if="followers && following" class="text-center text-gray-600">
-        <p>✅ Archivos cargados. Procesando...</p>
+        <p v-if="results.length > 0">{{ results.length }} cuentas no te siguen de vuelta</p>
+        <p v-else>Todos te siguen de vuelta!</p>
       </div>
     </div>
   `

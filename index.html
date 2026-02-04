@@ -100,6 +100,14 @@ const DropZone = {
   `
 };
 
+// Normalize Instagram URL (remove /_u/ and trailing slashes)
+const normalizeHref = (href) => {
+  if (!href) return href;
+  return href
+    .replace('/_u/', '/')  // Remove /_u/ from URL
+    .replace(/\/+$/, '');   // Remove trailing slashes
+};
+
 // Normalizer utility
 const normalizeData = (data, type) => {
   const warnings = [];
@@ -144,7 +152,9 @@ const normalizeData = (data, type) => {
       continue;
     }
 
-    const { href, value, timestamp } = stringData;
+    const { href: rawHref, value, timestamp } = stringData;
+    // Normalize the href to handle /_u/ differences between files
+    const href = normalizeHref(rawHref);
     // Use value, or fallback to item.title, or extract from href
     const username = value || item.title || (href ? href.split('/').filter(Boolean).pop() : 'unknown');
 
